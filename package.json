@@ -1,0 +1,14 @@
+{
+  "name": "squiztable",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Screenshot a Squiz results table fitted to 1920x1080",
+  "main": "shot.js",
+  "scripts": {
+    "shot": "node shot.js",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
