@@ -15,6 +15,7 @@ const CONFIG = {
   fontSizeOverride: "1.4rem", // CSS override applied on top of the slider; null = none
   rowPaddingY: null,      // cell vertical padding: a value like "4px", or "auto" to compress until panel fits height; null = leave alone
   lineHeight: null,       // cell line-height; null = leave alone
+  panelBorder: "2px solid rgba(255,255,255,0.22)", // CSS shorthand for the panel border. The site's own 1px border is too faint after downscaling. null = leave alone.
   background: null,       // composite bg colour (e.g. "#0c1116"); null = use page's body bg
   waitTimeout: 30000,
 };
@@ -58,7 +59,11 @@ async function resolveOutPath(page, requestedOut, url) {
   if (requestedOut) return path.resolve(requestedOut);
   const title = await page.evaluate(() => {
     const el = document.querySelector(".text-lg.text-foreground");
-    return el ? el.textContent : "";
+    if (!el) return "";
+    // Strip out muted-foreground descendants — we only want the primary text.
+    const cloned = el.cloneNode(true);
+    cloned.querySelectorAll(".text-muted-foreground").forEach((n) => n.remove());
+    return cloned.textContent;
   });
   let base = sanitizeFilename(title);
   if (!base) {
@@ -386,6 +391,21 @@ async function main() {
       document.head.appendChild(style);
     }, CONFIG.fontSizeOverride);
     await page.waitForTimeout(200);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  }
+
+  // Force a visible border around the panel — the site's 1px is too faint
+  // and washes out after the composite downscales the 2x DPR buffer.
+  if (CONFIG.panelBorder) {
+    console.log(`Applying panel border: ${CONFIG.panelBorder}`);
+    await page.evaluate((b) => {
+      const style = document.createElement("style");
+      style.id = "shot-panel-border";
+      // Box-sizing keeps the panel's outer dimensions stable so width
+      // auto-fit doesn't have to redo work.
+      style.textContent = `[data-shot-target] { border: ${b} !important; box-sizing: border-box !important; }`;
+      document.head.appendChild(style);
+    }, CONFIG.panelBorder);
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   }
 
