@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Squiztable — на слайд
 // @namespace    https://github.com/apreeel/squiztable
-// @version      0.2.0
+// @version      0.2.1
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
@@ -23,7 +23,7 @@
     fontSizeOverride: "1.4rem",                      // CSS поверх слайдера; null — не трогать
     panelBorder: "2px solid rgba(255,255,255,0.22)", // принудительная видимая рамка; null — не трогать
     background: null,                                // фон композита; null — взять цвет body со страницы
-    buttonLabel: "На слайд",
+    buttonLabel: "Скачать PNG",
   };
 
   // ── Утилиты
