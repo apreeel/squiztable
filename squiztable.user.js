@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Squiztable — на слайд
 // @namespace    https://github.com/apreeel/squiztable
-// @version      0.1.0
+// @version      0.2.0
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
-// @require      https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js
+// @require      https://cdn.jsdelivr.net/npm/modern-screenshot@4.7.0/dist/index.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @run-at       document-idle
@@ -292,12 +292,12 @@
       // Скрываем кнопку, чтобы не попала в кадр (она вне панели, но на всякий).
       button.style.visibility = "hidden";
 
-      // html2canvas → canvas с панелью.
-      const panelCanvas = await html2canvas(panel, {
+      // modern-screenshot рендерит через SVG <foreignObject> — браузер сам
+      // делает layout, так что вертикальное выравнивание текста в таблице,
+      // тени, скругления и т.п. — пиксель-в-пиксель.
+      const panelCanvas = await modernScreenshot.domToCanvas(panel, {
         scale: 2,
         backgroundColor: null,
-        useCORS: true,
-        logging: false,
       });
 
       button.style.visibility = "";
