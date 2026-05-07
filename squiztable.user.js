@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Squiz Results To PNG
 // @namespace    https://github.com/apreeel/squiztable
-// @version      0.2.3
+// @version      0.2.4
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
 // @require      https://cdn.jsdelivr.net/npm/modern-screenshot@4.7.0/dist/index.js
 // @grant        GM_setValue
 // @grant        GM_getValue
-// @run-at       document-idle
+// @run-at       document-end
 // ==/UserScript==
 
 /* global modernScreenshot */
