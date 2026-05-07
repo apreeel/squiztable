@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Squiz Results To PNG 
+// @name         Squiz Results To PNG
 // @namespace    https://github.com/apreeel/squiztable
 // @version      0.2.2
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
@@ -11,6 +11,7 @@
 // @run-at       document-idle
 // ==/UserScript==
 
+/* global modernScreenshot */
 (function () {
   "use strict";
 
@@ -18,11 +19,16 @@
   const CONFIG = {
     viewport: { width: 1920, height: 1080 },
     padding: 50,
-    sliderFont: 140,                                 // выставится через End на font-thumb
-    sliderWidth: "auto",                             // ArrowLeft пока панель ≤ viewport.width − 2·padding; число — конкретное value; null — не трогать
-    fontSizeOverride: "1.4rem",                      // CSS поверх слайдера; null — не трогать
-    panelBorder: "2px solid rgba(255,255,255,0.22)", // принудительная видимая рамка; null — не трогать
-    background: null,                                // фон композита; null — взять цвет body со страницы
+    // выставится через End на font-thumb
+    sliderFont: 140,
+    // ArrowLeft пока панель ≤ viewport.width − 2·padding; число — конкретное value; null — не трогать
+    sliderWidth: "auto",
+    // CSS поверх слайдера; null — не трогать
+    fontSizeOverride: "1.4rem",
+    // принудительная видимая рамка; null — не трогать
+    panelBorder: "2px solid rgba(255,255,255,0.22)",
+    // фон композита; null — взять цвет body со страницы
+    background: null,
     buttonLabel: "Скачать PNG",
   };
 
