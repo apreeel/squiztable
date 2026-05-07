@@ -8,7 +8,7 @@
 // @require      https://cdn.jsdelivr.net/npm/modern-screenshot@4.7.0/dist/index.js
 // @grant        GM_setValue
 // @grant        GM_getValue
-// @run-at       document-idle
+// @run-at       document-end
 // ==/UserScript==
 
 /* global modernScreenshot */
