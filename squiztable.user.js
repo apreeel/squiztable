@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Squiz Results To PNG
 // @namespace    https://github.com/apreeel/squiztable
-// @version      0.2.4
+// @version      0.2.7
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
@@ -280,6 +280,9 @@
         injectStyle("shot-panel-border", `[data-shot-target] { border: ${CONFIG.panelBorder} !important; box-sizing: border-box !important; }`);
         await raf();
       }
+      // Заливка под самой панелью + клиппинг к скруглениям (иначе фон шапки торчит за углами).
+      injectStyle("shot-panel-bg", `[data-shot-target] { background-color: ${pageBg()} !important; overflow: hidden !important; }`);
+      await raf();
 
       // Auto-fit ширины.
       if (CONFIG.sliderWidth != null && widthSlider) {
@@ -313,8 +316,6 @@
       out.width = CONFIG.viewport.width;
       out.height = CONFIG.viewport.height;
       const ctx = out.getContext("2d");
-      ctx.fillStyle = pageBg();
-      ctx.fillRect(0, 0, out.width, out.height);
 
       const maxW = CONFIG.viewport.width - 2 * CONFIG.padding;
       const maxH = CONFIG.viewport.height - 2 * CONFIG.padding;
