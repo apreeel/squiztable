@@ -409,6 +409,26 @@ async function main() {
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   }
 
+  // Sample the page background so the panel itself has fill inside its
+  // rounded shape (otherwise on Squiz the card is transparent and only the
+  // body provides colour — which we strip with omitBackground below).
+  const pageBg = await page.evaluate(() => {
+    const bg = getComputedStyle(document.body).backgroundColor;
+    return bg && bg !== "rgba(0, 0, 0, 0)" ? bg : "#0c1116";
+  });
+  const bg = CONFIG.background || pageBg;
+
+  // Paint the panel's own background + clip children to the rounded corners
+  // (so the table header doesn't poke out past the rounded frame). Mirrors
+  // the userscript so both produce identical screenshots.
+  await page.evaluate((bg) => {
+    const style = document.createElement("style");
+    style.id = "shot-panel-bg";
+    style.textContent = `[data-shot-target] { background-color: ${bg} !important; overflow: hidden !important; }`;
+    document.head.appendChild(style);
+  }, bg);
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
   // Row-padding control: explicit value, "auto" (compress to fit height), or null.
   if (CONFIG.rowPaddingY != null) {
     const targetH = CONFIG.viewport.height - 2 * args.padding;
@@ -441,32 +461,29 @@ async function main() {
     console.warn("Width slider not found by label.");
   }
 
-  // Element screenshot of just the panel.
-  const panelBuf = await page.locator("[data-shot-target]").screenshot();
-
-  // Sample the page background so the composite blends in.
-  const pageBg = await page.evaluate(() => {
-    const bg = getComputedStyle(document.body).backgroundColor;
-    return bg && bg !== "rgba(0, 0, 0, 0)" ? bg : "#0c1116";
-  });
-  const bg = CONFIG.background || pageBg;
+  // Element screenshot of just the panel — omitBackground strips the body
+  // bg, so the rectangular bbox outside the rounded shape is transparent.
+  // The panel's own bg (injected above) fills inside the rounded shape.
+  const panelBuf = await page.locator("[data-shot-target]").screenshot({ omitBackground: true });
 
   // Composite onto a 1920×1080 canvas at 1x DPR so the final PNG is
   // exactly viewport-sized. The browser downscales the 2x panel buffer to
-  // fit, which keeps text crisp.
+  // fit, which keeps text crisp. Body has no background — combined with
+  // omitBackground the area around the panel stays transparent in the PNG.
   const composeCtx = await browser.newContext({ viewport: CONFIG.viewport, deviceScaleFactor: 1 });
   const composer = await composeCtx.newPage();
   const maxW = CONFIG.viewport.width - 2 * args.padding;
   const maxH = CONFIG.viewport.height - 2 * args.padding;
   const html = `<!doctype html><html><head><style>
     html, body { margin: 0; padding: 0; width: ${CONFIG.viewport.width}px; height: ${CONFIG.viewport.height}px; overflow: hidden; }
-    body { background: ${bg}; display: flex; align-items: center; justify-content: center; }
+    body { display: flex; align-items: center; justify-content: center; }
     img { max-width: ${maxW}px; max-height: ${maxH}px; object-fit: contain; image-rendering: -webkit-optimize-contrast; }
   </style></head><body><img src="data:image/png;base64,${panelBuf.toString("base64")}" /></body></html>`;
   await composer.setContent(html);
   await composer.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   await composer.screenshot({
     path: out,
+    omitBackground: true,
     clip: { x: 0, y: 0, width: CONFIG.viewport.width, height: CONFIG.viewport.height },
   });
   console.log(`Saved ${out}`);

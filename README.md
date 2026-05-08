@@ -100,10 +100,10 @@ shot.bat https://my.squiz.ru/results/0e5b893f-81c9-43d5-b104-aaee55bf458f
 
 PNG сохраняется в текущую папку под именем `MMDD_<заголовок турнира>_n.png`.
 Опции CLI: `--out <file.png>`, `--selector "<css>"`, `--padding 50`. Все
-параметры конфигурируются в верхушке `shot.js` (тот же `CONFIG` по идее, что
-в userscript-е, плюс `rowPaddingY` / `lineHeight` / `waitTimeout`). PNG в
-этой версии — без прозрачного фона: композит делается на цвет `<body>`
-страницы.
+параметры конфигурируются в верхушке `shot.js` (тот же `CONFIG`, что в
+userscript-е, плюс `rowPaddingY` / `lineHeight` / `waitTimeout`). Снимок
+идентичен userscript-овому: прозрачный фон вокруг карточки, скругления
+клипуются.
 
 ## Проблемы
 
