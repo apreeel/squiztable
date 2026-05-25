@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Squiz Results To PNG
 // @namespace    https://github.com/apreeel/squiztable
-// @version      0.2.8
+// @version      0.2.9
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
@@ -335,9 +335,19 @@
       // modern-screenshot рендерит через SVG <foreignObject> — браузер сам
       // делает layout, так что вертикальное выравнивание текста в таблице,
       // тени, скругления и т.п. — пиксель-в-пиксель.
+      //
+      // Под html.zoom getBoundingClientRect отдаёт визуально уменьшенные
+      // значения, а клон внутри foreignObject (без zoom-контекста) лэйаут-ится
+      // в натуральную ширину → правый и нижний край панели обрезаются по
+      // границе SVG. Поэтому считаем «натуральные» размеры (rect / zoom) и
+      // передаём их явно.
+      const captureRect = panel.getBoundingClientRect();
+      const captureZoom = parseFloat(document.documentElement.style.zoom) || 1;
       const panelCanvas = await modernScreenshot.domToCanvas(panel, {
         scale: 2,
         backgroundColor: null,
+        width: Math.ceil(captureRect.width / captureZoom),
+        height: Math.ceil(captureRect.height / captureZoom),
       });
 
       // Композит на 1920×1080 с фоном страницы и ≥ padding по краям.
