@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Squiz Results To PNG
 // @namespace    https://github.com/apreeel/squiztable
-// @version      0.2.7
+// @version      0.2.8
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
@@ -94,6 +94,28 @@
     s.textContent = css;
   }
 
+  // shot.js всегда снимает в Chromium с viewport 1920×1080 — поэтому CLI
+  // стабилен. В userscript'е окно/DPR/zoom — какие есть у пользователя; на
+  // ноутбуках Windows со 150% масштабом CSS-viewport ~1280px и layout таблицы
+  // получается уже, чем рассчитан 1.4rem fontSizeOverride → имена команд
+  // переносятся на две строки. CSS `zoom` на <html> — layout-time множитель в
+  // Chromium: при zoom=W/1920 html лэйаут-ится так, будто окно 1920px широкое.
+  function applyVirtualViewport() {
+    const real = window.innerWidth;
+    if (real >= CONFIG.viewport.width) return null;
+    const html = document.documentElement;
+    const prev = { zoom: html.style.zoom };
+    const z = real / CONFIG.viewport.width;
+    html.style.zoom = String(z);
+    console.log(`[squiztable] virtual viewport: innerWidth=${real}, zoom=${z.toFixed(3)}`);
+    return prev;
+  }
+
+  function restoreVirtualViewport(prev) {
+    if (!prev) return;
+    document.documentElement.style.zoom = prev.zoom;
+  }
+
   // ── Слайдеры (Radix UI: [role="slider"] с aria-valuenow)
 
   function listSliders() {
@@ -171,6 +193,11 @@
 
   async function fitWidthSlider(thumb, targetWidth) {
     thumb.focus();
+    // Сначала на максимум — иначе если страница инициализировала слайдер на
+    // маленьком значении, мы вернёмся сразу с узкой панелью и таблица будет
+    // сжата.
+    pressKey(thumb, "End");
+    await sleep(150);
     for (let i = 0; i < 200; i++) {
       const panel = document.querySelector("[data-shot-target]");
       const w = panel ? panel.getBoundingClientRect().width : 0;
@@ -233,7 +260,11 @@
     };
     setLabel("Снимаю…", true);
 
+    let savedViewport = null;
     try {
+      savedViewport = applyVirtualViewport();
+      await raf();
+
       // Материализуем виртуализированные строки.
       window.scrollTo(0, document.body.scrollHeight);
       await sleep(300);
@@ -309,8 +340,6 @@
         backgroundColor: null,
       });
 
-      button.style.visibility = "";
-
       // Композит на 1920×1080 с фоном страницы и ≥ padding по краям.
       const out = document.createElement("canvas");
       out.width = CONFIG.viewport.width;
@@ -345,6 +374,11 @@
       console.error("[squiztable]", err);
       setLabel("✗ ошибка (см. консоль)", false);
       setTimeout(() => setLabel(CONFIG.buttonLabel, false), 3000);
+    } finally {
+      // Любой исход — снимаем zoom и возвращаем кнопку, иначе пользователь
+      // остаётся со сжатой страницей и/или невидимой кнопкой.
+      button.style.visibility = "";
+      restoreVirtualViewport(savedViewport);
     }
   }
 
