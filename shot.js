@@ -220,24 +220,87 @@ async function fitRowsToHeight(page, targetHeight, lineHeight) {
   return { pad: 0, height: h };
 }
 
-// Step the width slider DOWN one tick at a time until the panel's measured
-// width fits within `targetWidth` (or the slider bottoms out).
-async function fitWidthSlider(page, thumbIdx, targetWidth) {
+// Find the «Команда» column inside [data-shot-target] and install a page-side
+// predicate at window.__teamWraps() that returns true when any team-name cell
+// is taller than its sibling reference cell — i.e. the name has wrapped to two
+// lines. Returns the column index, or null if the header wasn't found (caller
+// then falls back to frame-only width fit).
+async function installTeamWrapCheck(page) {
+  return page.evaluate(() => {
+    const panel = document.querySelector("[data-shot-target]");
+    if (!panel) return null;
+    const table = panel.tagName === "TABLE" ? panel : panel.querySelector("table");
+    if (!table) return null;
+    const headerRow = (table.tHead && table.tHead.rows[0]) || table.rows[0];
+    if (!headerRow) return null;
+    let colIdx = -1;
+    for (let i = 0; i < headerRow.cells.length; i++) {
+      const t = (headerRow.cells[i].textContent || "").trim().toLowerCase();
+      if (/команда|team/.test(t)) { colIdx = i; break; }
+    }
+    if (colIdx < 0) return null;
+    const bodies = table.tBodies && table.tBodies.length ? Array.from(table.tBodies) : [table];
+    const bodyRows = [];
+    for (const b of bodies) {
+      for (const r of b.rows) {
+        if (r === headerRow) continue;
+        if (r.cells.length > colIdx) bodyRows.push(r);
+      }
+    }
+    if (!bodyRows.length) return null;
+    window.__teamWraps = () => {
+      for (const row of bodyRows) {
+        const name = row.cells[colIdx];
+        if (!name) continue;
+        let ref = null;
+        for (let i = 0; i < row.cells.length; i++) {
+          if (i !== colIdx) { ref = row.cells[i]; break; }
+        }
+        if (!ref) continue;
+        if (name.offsetHeight > ref.offsetHeight + 2) return true;
+      }
+      return false;
+    };
+    return colIdx;
+  });
+}
+
+// Width slider auto-fit: shrink past the 1820px frame limit until any team
+// name wraps to two lines, then step back one tick. Falls back to frame-only
+// behaviour when teamColIdx is null. Returns { width, reason }.
+async function fitWidthSlider(page, thumbIdx, targetWidth, hasWrapCheck) {
   const thumb = page.locator('[role="slider"]').nth(thumbIdx);
   await thumb.focus();
-  for (let i = 0; i < 200; i++) {
-    const w = await page.evaluate(() => {
+  const measure = async () =>
+    page.evaluate(() => {
       const el = document.querySelector("[data-shot-target]");
       return el ? el.getBoundingClientRect().width : 0;
     });
-    if (w <= targetWidth) return w;
+  let lastW = await measure();
+  for (let i = 0; i < 200; i++) {
+    const w = await measure();
+    lastW = w;
+    if (w === 0) return { width: 0, reason: "no-panel" };
+    if (w > targetWidth) {
+      const before = await radixValue(page, thumbIdx);
+      await page.keyboard.press("ArrowLeft");
+      await page.waitForTimeout(30);
+      if ((await radixValue(page, thumbIdx)) === before) return { width: w, reason: "slider-min-overflow" };
+      continue;
+    }
+    if (!hasWrapCheck) return { width: w, reason: "frame-no-wrapcheck" };
+    const wraps = await page.evaluate(() => window.__teamWraps && window.__teamWraps());
+    if (wraps) {
+      await page.keyboard.press("ArrowRight");
+      await page.waitForTimeout(30);
+      return { width: await measure(), reason: "wrap" };
+    }
     const before = await radixValue(page, thumbIdx);
     await page.keyboard.press("ArrowLeft");
     await page.waitForTimeout(30);
-    const after = await radixValue(page, thumbIdx);
-    if (after === before) return w; // can't go lower
+    if ((await radixValue(page, thumbIdx)) === before) return { width: w, reason: "slider-min" };
   }
-  return null;
+  return { width: lastW, reason: "iter-cap" };
 }
 
 async function findPanel(page, userSelector) {
@@ -449,9 +512,14 @@ async function main() {
     const radixIdx = sliders.slice(0, widthIdx + 1).filter((s) => s.kind === "radix").length - 1;
     if (CONFIG.sliderWidth === "auto") {
       const target = CONFIG.viewport.width - 2 * args.padding;
-      console.log(`Auto-fitting width slider until panel ≤ ${target}px`);
-      const finalW = await fitWidthSlider(page, radixIdx, target);
-      console.log(`  panel.width is now ${finalW != null ? Math.round(finalW) : "?"} px`);
+      const teamColIdx = await installTeamWrapCheck(page);
+      if (teamColIdx == null) {
+        console.warn("Team-name column not found — falling back to frame-fit only.");
+      } else {
+        console.log(`Team column idx=${teamColIdx}; auto-fit width ≤ ${target}px (stop on wrap)`);
+      }
+      const res = await fitWidthSlider(page, radixIdx, target, teamColIdx != null);
+      console.log(`  panel.width = ${Math.round(res.width)} px (stop: ${res.reason})`);
     } else {
       console.log(`Setting width slider [${sliders[widthIdx].label}] = ${CONFIG.sliderWidth}`);
       await setRadixSlider(page, radixIdx, CONFIG.sliderWidth);
@@ -474,10 +542,14 @@ async function main() {
   const composer = await composeCtx.newPage();
   const maxW = CONFIG.viewport.width - 2 * args.padding;
   const maxH = CONFIG.viewport.height - 2 * args.padding;
+  // Box is fixed to the inner frame (1820×980 with padding=50). object-fit:
+  // contain handles aspect: the narrower-than-frame panel is upscaled until
+  // one side hits the box, the other is letterboxed. Panel buffer was taken
+  // at 2x DPR so moderate upscale stays sharp.
   const html = `<!doctype html><html><head><style>
     html, body { margin: 0; padding: 0; width: ${CONFIG.viewport.width}px; height: ${CONFIG.viewport.height}px; overflow: hidden; }
     body { display: flex; align-items: center; justify-content: center; }
-    img { max-width: ${maxW}px; max-height: ${maxH}px; object-fit: contain; image-rendering: -webkit-optimize-contrast; }
+    img { width: ${maxW}px; height: ${maxH}px; object-fit: contain; image-rendering: -webkit-optimize-contrast; }
   </style></head><body><img src="data:image/png;base64,${panelBuf.toString("base64")}" /></body></html>`;
   await composer.setContent(html);
   await composer.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
