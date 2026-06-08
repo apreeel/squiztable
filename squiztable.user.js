@@ -6,6 +6,7 @@
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
 // @require      https://cdn.jsdelivr.net/npm/modern-screenshot@4.7.0/dist/index.js
+// @icon         https://my.squiz.ru/favicon.ico?v=4
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @run-at       document-end
