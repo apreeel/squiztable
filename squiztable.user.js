@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Squiz Results To PNG
 // @namespace    https://github.com/apreeel/squiztable
-// @version      0.3.0
+// @version      0.3.1
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
@@ -214,11 +214,13 @@
 
   // Находит колонку «Команда» в таблице внутри панели и возвращает объект с
   // методом wrapsNow(): true, если хоть одно имя команды разъехалось на две
-  // строки. Сравниваем offsetHeight ячейки имени с соседней (числовой)
-  // ячейкой той же строки — если выше на >2px, текст перенёсся.
+  // строки. Считаем через Range.getClientRects() — по одному прямоугольнику
+  // на каждую визуальную строку текста. >1 rect ⇒ перенос.
   //
-  // Не трогаем стили: white-space:nowrap под table-layout:auto может
-  // расширить колонку и сорвать измерение panel.offsetWidth.
+  // Почему НЕ сравнение offsetHeight ячеек: внутри одной <tr> все <td>
+  // принудительно тянутся до высоты строки. Когда имя перенеслось на 2
+  // строки, соседняя числовая ячейка тоже становится высотой 2 строки,
+  // и сравнение всегда False. Range мерит сам текст, а не бокс ячейки.
   //
   // Возвращает null, если заголовок «Команда»/«Team» не найден — тогда
   // вызывающий код откатывается на старое поведение (стоп на первом ≤ 1820).
@@ -247,14 +249,11 @@
       colIdx,
       wrapsNow() {
         for (const row of bodyRows) {
-          const name = row.cells[colIdx];
-          if (!name) continue;
-          let ref = null;
-          for (let i = 0; i < row.cells.length; i++) {
-            if (i !== colIdx) { ref = row.cells[i]; break; }
-          }
-          if (!ref) continue;
-          if (name.offsetHeight > ref.offsetHeight + 2) return true;
+          const cell = row.cells[colIdx];
+          if (!cell || !cell.firstChild) continue;
+          const range = document.createRange();
+          range.selectNodeContents(cell);
+          if (range.getClientRects().length > 1) return true;
         }
         return false;
       },

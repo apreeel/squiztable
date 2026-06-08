@@ -222,9 +222,12 @@ async function fitRowsToHeight(page, targetHeight, lineHeight) {
 
 // Find the «Команда» column inside [data-shot-target] and install a page-side
 // predicate at window.__teamWraps() that returns true when any team-name cell
-// is taller than its sibling reference cell — i.e. the name has wrapped to two
-// lines. Returns the column index, or null if the header wasn't found (caller
-// then falls back to frame-only width fit).
+// has rendered text on more than one line — measured via Range.getClientRects(),
+// which yields one rect per visual line box. Comparing <td> heights doesn't
+// work: cells in the same <tr> always share row height, so when the name
+// wraps the sibling numeric cell grows along with it. Range looks at the text
+// itself. Returns the column index, or null if the header wasn't found
+// (caller then falls back to frame-only width fit).
 async function installTeamWrapCheck(page) {
   return page.evaluate(() => {
     const panel = document.querySelector("[data-shot-target]");
@@ -250,14 +253,11 @@ async function installTeamWrapCheck(page) {
     if (!bodyRows.length) return null;
     window.__teamWraps = () => {
       for (const row of bodyRows) {
-        const name = row.cells[colIdx];
-        if (!name) continue;
-        let ref = null;
-        for (let i = 0; i < row.cells.length; i++) {
-          if (i !== colIdx) { ref = row.cells[i]; break; }
-        }
-        if (!ref) continue;
-        if (name.offsetHeight > ref.offsetHeight + 2) return true;
+        const cell = row.cells[colIdx];
+        if (!cell || !cell.firstChild) continue;
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        if (range.getClientRects().length > 1) return true;
       }
       return false;
     };
