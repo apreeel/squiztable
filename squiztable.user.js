@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Squiz Results To PNG
 // @namespace    https://github.com/apreeel/squiztable
-// @version      0.2.10
+// @version      0.3.1
 // @description  Один клик — PNG 1920×1080 с турнирной таблицей squiz, готовый к вставке на слайд
 // @author       apreeel
 // @match        https://my.squiz.ru/results/*
@@ -212,27 +212,95 @@
     }
   }
 
-  async function fitWidthSlider(thumb, targetWidth) {
+  // Находит колонку «Команда» в таблице внутри панели и возвращает объект с
+  // методом wrapsNow(): true, если хоть одно имя команды разъехалось на две
+  // строки. Считаем через Range.getClientRects() — по одному прямоугольнику
+  // на каждую визуальную строку текста. >1 rect ⇒ перенос.
+  //
+  // Почему НЕ сравнение offsetHeight ячеек: внутри одной <tr> все <td>
+  // принудительно тянутся до высоты строки. Когда имя перенеслось на 2
+  // строки, соседняя числовая ячейка тоже становится высотой 2 строки,
+  // и сравнение всегда False. Range мерит сам текст, а не бокс ячейки.
+  //
+  // Возвращает null, если заголовок «Команда»/«Team» не найден — тогда
+  // вызывающий код откатывается на старое поведение (стоп на первом ≤ 1820).
+  function setupTeamWrapCheck(panel) {
+    if (!panel) return null;
+    const table = panel.tagName === "TABLE" ? panel : panel.querySelector("table");
+    if (!table) return null;
+    const headerRow = (table.tHead && table.tHead.rows[0]) || table.rows[0];
+    if (!headerRow) return null;
+    let colIdx = -1;
+    for (let i = 0; i < headerRow.cells.length; i++) {
+      const t = (headerRow.cells[i].textContent || "").trim().toLowerCase();
+      if (/команда|team/.test(t)) { colIdx = i; break; }
+    }
+    if (colIdx < 0) return null;
+    const bodyRows = [];
+    const bodies = table.tBodies && table.tBodies.length ? Array.from(table.tBodies) : [table];
+    for (const b of bodies) {
+      for (const r of b.rows) {
+        if (r === headerRow) continue;
+        if (r.cells.length > colIdx) bodyRows.push(r);
+      }
+    }
+    if (!bodyRows.length) return null;
+    return {
+      colIdx,
+      wrapsNow() {
+        for (const row of bodyRows) {
+          const cell = row.cells[colIdx];
+          if (!cell || !cell.firstChild) continue;
+          const range = document.createRange();
+          range.selectNodeContents(cell);
+          if (range.getClientRects().length > 1) return true;
+        }
+        return false;
+      },
+    };
+  }
+
+  async function fitWidthSlider(thumb, targetWidth, wrapCheck) {
     thumb.focus();
     // Сначала на максимум — иначе если страница инициализировала слайдер на
     // маленьком значении, мы вернёмся сразу с узкой панелью и таблица будет
     // сжата.
     pressKey(thumb, "End");
     await sleep(150);
+    const panelEl = () => document.querySelector("[data-shot-target]");
+    // offsetWidth — настоящая layout-ширина, не зависит от transform
+    // виртуального viewport (getBoundingClientRect под scale вернул бы
+    // уменьшенную и сравнение с target пошло бы в «нарисованных» px).
+    const measure = () => { const p = panelEl(); return p ? p.offsetWidth : 0; };
+    let lastW = measure();
     for (let i = 0; i < 200; i++) {
-      const panel = document.querySelector("[data-shot-target]");
-      // offsetWidth — настоящая layout-ширина, не зависит от transform
-      // виртуального viewport (getBoundingClientRect под scale вернул бы
-      // уменьшенную и сравнение с target пошло бы в «нарисованных» px).
-      const w = panel ? panel.offsetWidth : 0;
-      if (w > 0 && w <= targetWidth) return w;
+      const w = measure();
+      lastW = w;
+      if (w === 0) return { width: 0, reason: "no-panel" };
+      if (w > targetWidth) {
+        // Ещё шире кадра — обязаны сужать, wrap не проверяем.
+        const before = radixValue(thumb);
+        pressKey(thumb, "ArrowLeft");
+        await sleep(30);
+        if (radixValue(thumb) === before) return { width: w, reason: "slider-min-overflow" };
+        continue;
+      }
+      // Влезли в кадр. Если wrap-чек недоступен — поведение как раньше:
+      // стоп на первом тике, где panel ≤ targetWidth (макс. ширина в кадре).
+      if (!wrapCheck) return { width: w, reason: "frame-no-wrapcheck" };
+      if (wrapCheck.wrapsNow()) {
+        // Имена уже переносятся — откатываемся на тик назад.
+        pressKey(thumb, "ArrowRight");
+        await sleep(30);
+        return { width: measure(), reason: "wrap" };
+      }
+      // Влезли и не wraps — пробуем уже.
       const before = radixValue(thumb);
       pressKey(thumb, "ArrowLeft");
       await sleep(30);
-      const after = radixValue(thumb);
-      if (after === before) return w; // дальше не двигается
+      if (radixValue(thumb) === before) return { width: w, reason: "slider-min" };
     }
-    return null;
+    return { width: lastW, reason: "iter-cap" };
   }
 
   // ── Поиск панели
@@ -343,9 +411,14 @@
       if (CONFIG.sliderWidth != null && widthSlider) {
         if (CONFIG.sliderWidth === "auto") {
           const target = CONFIG.viewport.width - 2 * CONFIG.padding;
-          console.log(`[squiztable] auto-fit width ≤ ${target}px`);
-          const finalW = await fitWidthSlider(widthSlider.thumb, target);
-          console.log(`[squiztable] panel.width = ${finalW != null ? Math.round(finalW) : "?"} px`);
+          const wrapCheck = setupTeamWrapCheck(panel);
+          if (!wrapCheck) {
+            console.warn("[squiztable] team-name column not found — falling back to frame-fit only");
+          } else {
+            console.log(`[squiztable] team column idx=${wrapCheck.colIdx}, auto-fit width ≤ ${target}px (stop on wrap)`);
+          }
+          const res = await fitWidthSlider(widthSlider.thumb, target, wrapCheck);
+          console.log(`[squiztable] panel.width = ${Math.round(res.width)} px (stop: ${res.reason})`);
         } else {
           await setRadixSlider(widthSlider.thumb, CONFIG.sliderWidth);
         }
@@ -380,7 +453,10 @@
 
       const maxW = CONFIG.viewport.width - 2 * CONFIG.padding;
       const maxH = CONFIG.viewport.height - 2 * CONFIG.padding;
-      const scale = Math.min(maxW / panelCanvas.width, maxH / panelCanvas.height, 1);
+      // Без кэпа ≤ 1: панель, найденная по «no-wrap минимуму», обычно уже
+      // 1820×980 — апскейлим её до кадра. modern-screenshot рендерил при
+      // scale:2, так что апскейл в ~1.3-1.5× ещё остаётся резким.
+      const scale = Math.min(maxW / panelCanvas.width, maxH / panelCanvas.height);
       const drawW = panelCanvas.width * scale;
       const drawH = panelCanvas.height * scale;
       ctx.imageSmoothingEnabled = true;
